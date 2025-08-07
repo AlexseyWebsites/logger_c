@@ -58,4 +58,4 @@ logger_close();
 
 ---
 
-*This library is designed for Windows platforms.*
+*This library is designed for Windows platforms. The build requires gcc.*
