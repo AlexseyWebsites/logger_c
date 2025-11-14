@@ -271,7 +271,7 @@ int rotate_log_if_needed(void) {
     return 0;
 }
 
-// Asynchronous logger thread function
+// Fixed asynchronous logger thread function
 static unsigned __stdcall async_logger_thread(void* param) {
     (void)param; // Unused parameter
     
@@ -290,40 +290,14 @@ static unsigned __stdcall async_logger_thread(void* param) {
                 // Check rotation before writing
                 rotate_log_if_needed();
                 
-                // Write to file
-                if (entry->has_context) {
-                    fprintf(log_file, "[%s] [%s] [%s:%d:%s] %s", 
-                            entry->message, // timestamp is already in message
-                            level_to_string(entry->level),
-                            entry->file, entry->line, entry->function,
-                            entry->message + 20); // Skip timestamp part
-                } else if (entry->has_module) {
-                    fprintf(log_file, "[%s] [%s] [%s] %s", 
-                            entry->message, // timestamp
-                            level_to_string(entry->level),
-                            entry->module,
-                            entry->message + 20); // Skip timestamp part
-                } else {
-                    fprintf(log_file, "%s", entry->message);
-                }
+                // Write to file - FIXED: use the pre-formatted message directly
+                fprintf(log_file, "%s", entry->message);
                 fflush(log_file);
                 
-                // Write to console if enabled
+                // Write to console if enabled - FIXED: use the pre-formatted message
                 if (config.outputToConsole) {
                     set_console_color(get_level_color(entry->level));
-                    if (entry->has_context) {
-                        printf("[%s] [%s] [%s:%d:%s] %s", 
-                               entry->message, level_to_string(entry->level),
-                               entry->file, entry->line, entry->function,
-                               entry->message + 20);
-                    } else if (entry->has_module) {
-                        printf("[%s] [%s] [%s] %s", 
-                               entry->message, level_to_string(entry->level),
-                               entry->module,
-                               entry->message + 20);
-                    } else {
-                        printf("%s", entry->message);
-                    }
+                    printf("%s", entry->message);
                     reset_console_color();
                 }
                 
@@ -483,7 +457,7 @@ void logger_close() {
     module_count = 0;
 }
 
-// Internal function to add message to async queue
+// Fixed function to add message to async queue
 static bool add_to_async_queue(LogLevel level, const char* formatted_message, 
                               const char* file, int line, const char* function,
                               const char* module) {
@@ -500,9 +474,12 @@ static bool add_to_async_queue(LogLevel level, const char* formatted_message,
     
     LogEntry* entry = &async_queue[async_queue_tail];
     entry->level = level;
+    
+    // FIXED: Store the complete formatted message directly
     strncpy(entry->message, formatted_message, sizeof(entry->message) - 1);
     entry->message[sizeof(entry->message) - 1] = '\0';
     
+    // Store context info for potential future use
     if (file && function) {
         entry->has_context = true;
         strncpy(entry->file, file, sizeof(entry->file) - 1);
@@ -510,14 +487,15 @@ static bool add_to_async_queue(LogLevel level, const char* formatted_message,
         entry->line = line;
         strncpy(entry->function, function, sizeof(entry->function) - 1);
         entry->function[sizeof(entry->function) - 1] = '\0';
-        entry->has_module = false;
-    } else if (module) {
+    } else {
+        entry->has_context = false;
+    }
+    
+    if (module) {
         entry->has_module = true;
         strncpy(entry->module, module, sizeof(entry->module) - 1);
         entry->module[sizeof(entry->module) - 1] = '\0';
-        entry->has_context = false;
     } else {
-        entry->has_context = false;
         entry->has_module = false;
     }
     
