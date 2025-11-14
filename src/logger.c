@@ -694,7 +694,7 @@ void log_message_guaranteed(LogLevel level, const char* format, ...) {
 
     char final_message[LOG_MAX_MESSAGE_SIZE];
     const char* level_str = level_to_string(level);
-    snprintf(final_message, sizeof(final_message), "[%s] [%s] %s", 
+    snprintf(final_message, sizeof(final_message), "[%s] [%s] %s\n", 
              timestamp, level_str, log_buffer);
 
     if (config.asyncMode) {
@@ -746,7 +746,7 @@ void log_message(LogLevel level, const char* format, ...) {
 
     char final_message[LOG_MAX_MESSAGE_SIZE];
     const char* level_str = level_to_string(level);
-    snprintf(final_message, sizeof(final_message), "[%s] [%s] %s", 
+    snprintf(final_message, sizeof(final_message), "[%s] [%s] %s\n", 
              timestamp, level_str, log_buffer);
 
     if (config.asyncMode) {
@@ -798,7 +798,7 @@ void log_message_with_context(LogLevel level, const char* file, int line, const 
 
     char final_message[LOG_MAX_MESSAGE_SIZE];
     const char* level_str = level_to_string(level);
-    snprintf(final_message, sizeof(final_message), "[%s] [%s] [%s:%d:%s] %s", 
+    snprintf(final_message, sizeof(final_message), "[%s] [%s] [%s:%d:%s] %s\n", 
              timestamp, level_str, filename, line, function, log_buffer);
 
     if (config.asyncMode) {
@@ -846,7 +846,7 @@ void log_message_module(LogLevel level, const char* module, const char* format, 
 
     char final_message[LOG_MAX_MESSAGE_SIZE];
     const char* level_str = level_to_string(level);
-    snprintf(final_message, sizeof(final_message), "[%s] [%s] [%s] %s", 
+    snprintf(final_message, sizeof(final_message), "[%s] [%s] [%s] %s\n", 
              timestamp, level_str, module, log_buffer);
 
     if (config.asyncMode) {
