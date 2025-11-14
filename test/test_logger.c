@@ -1,23 +1,45 @@
-#include "../src/logger.h"
+#include "logger.h"
 #include <stdio.h>
 
 int main() {
-    if (logger_init("app.log", LOG_MAX_SIZE) != 0) {
-        printf("Failed to initialize the logger");
-        return 1;
-    }
-
-    log_message(LOG_LEVEL_INFO, "The application is running\n");
-    log_message(LOG_LEVEL_DEBUG, "This is a test message DEBUG\n");
-    log_message(LOG_LEVEL_WARN, "This is a warning\n");
-    log_message(LOG_LEVEL_ERROR, "This is a mistake.\n");
-    log_message(LOG_LEVEL_FATAL, "This is a fatal mistake.\n");
-
-    for (int i=0; i<10; i++) {
-        log_message(LOG_LEVEL_DEBUG, "Log message number %d \n", i);
-    }
-
+    // Simple initialization
+    printf("Testing basic logger...\n");
+    logger_init("test_basic.log", 1024); // 1KB to demonstrate rotation
+    
+    log_info("Application started with basic logger\n");
+    log_debug("Debug message: %s\n", "This is debug info");
+    log_warn("Warning: %d files found\n", 5);
+    log_error("Error occurred: %s\n", "File not found");
+    
     logger_close();
-    printf("Logging completed\n");
+    
+    // Advanced initialization with a config
+    printf("Testing advanced logger...\n");
+    LoggerConfig cfg = {
+        .logFileName = "test_advanced.log",
+        .maxFileSize = 2048, // 2KB
+        .minLevel = LOG_LEVEL_INFO,
+        .outputToConsole = true,
+        .enableColors = true,
+        .logFormat = "[{time}] [{level}] {message}",
+        .logDirectory = "logs"
+    };
+    
+    logger_init_with_config(&cfg);
+    
+    // Using macros with context
+    LOG_INFO("Application started with advanced config\n");
+    LOG_DEBUG("This debug message won't appear due to minLevel\n");
+    LOG_WARN("User '%s' performed action '%s'\n", "john_doe", "login");
+    LOG_ERROR("Database connection failed: %s\n", "Timeout");
+    
+    // We generate a lot of messages for the rotation test
+    for (int i = 0; i < 50; i++) {
+        LOG_INFO("Test message %d for rotation testing\n", i);
+    }
+    
+    logger_close();
+    
+    printf("All tests completed. Check 'logs' directory.\n");
     return 0;
 }
