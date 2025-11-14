@@ -8,7 +8,7 @@
 #include <windows.h>
 #include <stdbool.h>
 
-// Maximum log file size before rotation (for example, 5MB)
+// Maximum log file size before rotation (5MB default)
 #define LOG_MAX_SIZE (5 * 1024 * 1024)
 
 typedef enum {
@@ -31,11 +31,10 @@ typedef enum {
 typedef struct {
     char logFileName[256];
     size_t maxFileSize;
-    LogLevel minLevel; // Minimum level for logging
-    bool outputToConsole; // Console output
-    char LogFormat[64]; // String format
-    bool enableColors; // Colors in the console (Windows only)
-    char logDirectory[256]; // Directory for logs
+    LogLevel minLevel;           // Minimum log level to output
+    bool outputToConsole;        // Enable console output
+    bool enableColors;          // Enable colored console output (Windows only)
+    char logDirectory[256];     // Directory for log files
 } LoggerConfig;
 
 // Main functions
@@ -43,24 +42,24 @@ int logger_init(const char* logFileName, size_t maxFileSize);
 int logger_init_with_config(const LoggerConfig* cfg);
 void logger_close();
 
-// Функции логирования
+// Logging functions
 void log_message(LogLevel level, const char* format, ...);
 void log_message_with_context(LogLevel level, const char* file, int line, const char* function, const char* format, ...);
 
-// Fast logging functions
+// Convenience logging functions
 void log_debug(const char* format, ...);
 void log_info(const char* format, ...);
 void log_warn(const char* format, ...);
 void log_error(const char* format, ...);
 void log_fatal(const char* format, ...);
 
-// Utilities
+// Utility functions
 void set_log_level(LogLevel minLevel);
 void set_console_output(bool enabled);
 LoggerError get_last_error(void);
 const char* logger_strerror(LoggerError error);
 
-// Macros for automatically adding context
+// Macros for automatic context logging
 #define LOG(level, ...) log_message_with_context(level, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 #define LOG_DEBUG(...) LOG(LOG_LEVEL_DEBUG, __VA_ARGS__)
 #define LOG_INFO(...) LOG(LOG_LEVEL_INFO, __VA_ARGS__)
