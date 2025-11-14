@@ -1,420 +1,47 @@
-#include "logger.h"
+#include "../src/logger.h"
+#include <stdio.h>
 
-static FILE* log_file = NULL;
-static char log_filename[256] = {0};
-static size_t max_file_size = LOG_MAX_SIZE;
-static HANDLE hMutex;
-static LoggerConfig config = {0};
-static LoggerError last_error = LOGGER_SUCCESS;
-static char log_buffer[4096]; // Buffer for formatting
-
-// Colors for the console (Windows)
-#define COLOR_DEBUG  7  // Белый
-#define COLOR_INFO   10 // Зеленый
-#define COLOR_WARN   14 // Желтый
-#define COLOR_ERROR  12 // Красный
-#define COLOR_FATAL  64 // Красный на красном фоне
-
-static void set_console_color(int color) {
-    if (config.enableColors) {
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        SetConsoleTextAttribute(hConsole, color);
-    }
-}
-
-static void reset_console_color() {
-    if (config.enableColors) {
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        SetConsoleTextAttribute(hConsole, 7); // Return to the standard
-    }
-}
-
-static void get_timestamp(char* buffer, size_t size) {
-    time_t now = time(NULL);
-    struct tm tm_now;
-    localtime_s(&tm_now, &now);
-    strftime(buffer, size, "%Y-%m-%d %H:%M:%S", &tm_now);
-}
-
-static const char* level_to_string(LogLevel level) {
-    switch (level) {
-        case LOG_LEVEL_DEBUG: return "DEBUG";
-        case LOG_LEVEL_INFO:  return "INFO";
-        case LOG_LEVEL_WARN:  return "WARN";
-        case LOG_LEVEL_ERROR: return "ERROR";
-        case LOG_LEVEL_FATAL: return "FATAL";
-        default: return "UNKNOWN";
-    }
-}
-
-static int get_level_color(LogLevel level) {
-    switch (level) {
-        case LOG_LEVEL_DEBUG: return COLOR_DEBUG;
-        case LOG_LEVEL_INFO:  return COLOR_INFO;
-        case LOG_LEVEL_WARN:  return COLOR_WARN;
-        case LOG_LEVEL_ERROR: return COLOR_ERROR;
-        case LOG_LEVEL_FATAL: return COLOR_FATAL;
-        default: return 7;
-    }
-}
-
-static bool ensure_directory_exists(const char* path) {
-    DWORD attrib = GetFileAttributesA(path);
-    if (attrib == INVALID_FILE_ATTRIBUTES) {
-        return CreateDirectoryA(path, NULL) != 0;
-    }
-    return (attrib & FILE_ATTRIBUTE_DIRECTORY) != 0;
-}
-
-// Improved rotation function with security checks
-int rotate_log_if_needed(void) {
-    if (!log_file) {
-        last_error = LOGGER_ERROR_FILE_OPEN;
-        return -1;
-    }
-
-    fseek(log_file, 0, SEEK_END);
-    long size = ftell(log_file);
-    if (size < 0) {
-        last_error = LOGGER_ERROR_ROTATION;
-        return -1;
+int main() {
+    // Simple initialization
+    printf("Testing basic logger...\n");
+    logger_init("test_basic.log", 1024); // 1KB for rotation demo
+    
+    log_info("Application started with basic logger\n");
+    log_debug("Debug message: %s\n", "This is debug info");
+    log_warn("Warning: %d files found\n", 5);
+    log_error("Error occurred: %s\n", "File not found");
+    
+    logger_close();
+    
+    // Advanced initialization with config
+    printf("Testing advanced logger...\n");
+    LoggerConfig cfg = {
+        .logFileName = "test_advanced.log",
+        .maxFileSize = 2048, // 2KB
+        .minLevel = LOG_LEVEL_INFO,
+        .outputToConsole = true,
+        .enableColors = true,
+        .logDirectory = "logs"
+    };
+    
+    if (logger_init_with_config(&cfg) != 0) {
+        printf("Failed to initialize logger: %s\n", logger_strerror(get_last_error()));
+        return 1;
     }
     
-    if ((size_t)size >= max_file_size) {
-        fclose(log_file);
-
-        // Create a directory for archives if necessary
-        if (strlen(config.logDirectory) > 0) {
-            if (!ensure_directory_exists(config.logDirectory)) {
-                last_error = LOGGER_ERROR_ROTATION;
-                return -1;
-            }
-        }
-
-        // Generating a unique archive name
-        char archive_name[300];
-        int counter = 0;
-        char base_name[256];
-        
-        // Extracting the base file name without the extension
-        char* dot = strrchr(log_filename, '.');
-        if (dot) {
-            size_t len = dot - log_filename;
-            strncpy(base_name, log_filename, len);
-            base_name[len] = '\0';
-        } else {
-            strcpy(base_name, log_filename);
-        }
-
-        do {
-            time_t now = time(NULL);
-            struct tm tm_now;
-            localtime_s(&tm_now, &now);
-            
-            if (counter == 0) {
-                if (strlen(config.logDirectory) > 0) {
-                    snprintf(archive_name, sizeof(archive_name), 
-                            "%s/%s_%Y-%m-%d_%H-%M-%S.log", 
-                            config.logDirectory, base_name, &tm_now);
-                } else {
-                    snprintf(archive_name, sizeof(archive_name), 
-                            "%s_%Y-%m-%d_%H-%M-%S.log", 
-                            base_name, &tm_now);
-                }
-            } else {
-                if (strlen(config.logDirectory) > 0) {
-                    snprintf(archive_name, sizeof(archive_name), 
-                            "%s/%s_%Y-%m-%d_%H-%M-%S_%d.log", 
-                            config.logDirectory, base_name, &tm_now, counter);
-                } else {
-                    snprintf(archive_name, sizeof(archive_name), 
-                            "%s_%Y-%m-%d_%H-%M-%S_%d.log", 
-                            base_name, &tm_now, counter);
-                }
-            }
-            
-            // Formatting the date string
-            char temp[300];
-            strftime(temp, sizeof(temp), archive_name, &tm_now);
-            strcpy(archive_name, temp);
-            
-            counter++;
-        } while (_access(archive_name, 0) == 0 && counter < 1000);
-
-        if (counter >= 1000) {
-            last_error = LOGGER_ERROR_ROTATION;
-            return -1;
-        }
-
-        if (rename(log_filename, archive_name) != 0) {
-            last_error = LOGGER_ERROR_ROTATION;
-            return -1;
-        }
-        
-        log_file = fopen(log_filename, "a");
-        if (!log_file) {
-            last_error = LOGGER_ERROR_FILE_OPEN;
-            return -1;
-        }
+    // Using macros with context
+    LOG_INFO("Application started with advanced config\n");
+    LOG_DEBUG("This debug message won't appear due to minLevel\n");
+    LOG_WARN("User '%s' performed action '%s'\n", "john_doe", "login");
+    LOG_ERROR("Database connection failed: %s\n", "Timeout");
+    
+    // Generate many messages for rotation testing
+    for (int i = 0; i < 50; i++) {
+        LOG_INFO("Test message %d for rotation testing\n", i);
     }
+    
+    logger_close();
+    
+    printf("All tests completed. Check 'logs' directory.\n");
     return 0;
-}
-
-int logger_init(const char* logFileName, size_t maxFileSize) {
-    // Initializing the default configuration
-    memset(&config, 0, sizeof(config));
-    strncpy(config.logFileName, logFileName ? logFileName : "application.log", 
-            sizeof(config.logFileName) - 1);
-    config.maxFileSize = maxFileSize ? maxFileSize : LOG_MAX_SIZE;
-    config.minLevel = LOG_LEVEL_DEBUG;
-    config.outputToConsole = false;
-    config.enableColors = true;
-    strcpy(config.logFormat, "[{time}] [{level}] {message}");
-    strcpy(config.logDirectory, "logs");
-    
-    return logger_init_with_config(&config);
-}
-
-int logger_init_with_config(const LoggerConfig* cfg) {
-    if (!cfg) {
-        last_error = LOGGER_ERROR_INVALID_PARAM;
-        return -1;
-    }
-    
-    memcpy(&config, cfg, sizeof(LoggerConfig));
-    
-    if (strlen(config.logDirectory) > 0) {
-        if (!ensure_directory_exists(config.logDirectory)) {
-            last_error = LOGGER_ERROR_FILE_OPEN;
-            return -1;
-        }
-        snprintf(log_filename, sizeof(log_filename), "%s/%s", 
-                config.logDirectory, config.logFileName);
-    } else {
-        strncpy(log_filename, config.logFileName, sizeof(log_filename) - 1);
-    }
-    
-    max_file_size = config.maxFileSize ? config.maxFileSize : LOG_MAX_SIZE;
-
-    // Creating a mutex
-    hMutex = CreateMutex(NULL, FALSE, NULL);
-    if (!hMutex) {
-        last_error = LOGGER_ERROR_MUTEX;
-        return -1;
-    }
-
-    // Opening the log file
-    log_file = fopen(log_filename, "a");
-    if (!log_file) {
-        CloseHandle(hMutex);
-        last_error = LOGGER_ERROR_FILE_OPEN;
-        return -1;
-    }
-    
-    last_error = LOGGER_SUCCESS;
-    return 0;
-}
-
-void logger_close() {
-    WaitForSingleObject(hMutex, INFINITE);
-    
-    if (log_file) {
-        fclose(log_file);
-        log_file = NULL;
-    }
-    if (hMutex) {
-        ReleaseMutex(hMutex);
-        CloseHandle(hMutex);
-        hMutex = NULL;
-    }
-    
-    memset(&config, 0, sizeof(config));
-}
-
-void log_message(LogLevel level, const char* format, ...) {
-    if (!log_file || level < config.minLevel) return;
-
-    WaitForSingleObject(hMutex, INFINITE);
-
-    // Checking the need for rotation
-    if (rotate_log_if_needed() != 0) {
-        ReleaseMutex(hMutex);
-        return;
-    }
-
-    // Creating a timestamp
-    char timestamp[64];
-    get_timestamp(timestamp, sizeof(timestamp));
-
-    // Formatting the message
-    va_list args;
-    va_start(args, format);
-    vsnprintf(log_buffer, sizeof(log_buffer), format, args);
-    va_end(args);
-
-    // Formatting the final row according to the template
-    char final_message[1024];
-    const char* level_str = level_to_string(level);
-    
-    // Simple replacement of placeholders
-    char temp_format[128];
-    strcpy(temp_format, config.logFormat);
-    
-    char* time_pos = strstr(temp_format, "{time}");
-    char* level_pos = strstr(temp_format, "{level}");
-    char* msg_pos = strstr(temp_format, "{message}");
-    
-    if (time_pos) {
-        *time_pos = '\0';
-        time_pos += 6;
-    }
-    if (level_pos) {
-        *level_pos = '\0';
-        level_pos += 7;
-    }
-    if (msg_pos) {
-        *msg_pos = '\0';
-        msg_pos += 9;
-    }
-    
-    snprintf(final_message, sizeof(final_message), "%s%s%s%s%s%s", 
-             temp_format, timestamp,
-             time_pos ? time_pos : "",
-             level_str,
-             level_pos ? level_pos : "",
-             log_buffer,
-             msg_pos ? msg_pos : "");
-
-    // Writing to file
-    fprintf(log_file, "%s", final_message);
-    fflush(log_file);
-
-    // Writing to console if enabled
-    if (config.outputToConsole) {
-        set_console_color(get_level_color(level));
-        printf("%s", final_message);
-        reset_console_color();
-    }
-
-    ReleaseMutex(hMutex);
-}
-
-void log_message_with_context(LogLevel level, const char* file, int line, const char* function, const char* format, ...) {
-    if (!log_file || level < config.minLevel) return;
-
-    WaitForSingleObject(hMutex, INFINITE);
-
-    if (rotate_log_if_needed() != 0) {
-        ReleaseMutex(hMutex);
-        return;
-    }
-
-    char timestamp[64];
-    get_timestamp(timestamp, sizeof(timestamp));
-
-    // Formatting the main message
-    va_list args;
-    va_start(args, format);
-    vsnprintf(log_buffer, sizeof(log_buffer), format, args);
-    va_end(args);
-
-    // Extracting only the file name from the full path
-    const char* filename = strrchr(file, '\\');
-    if (!filename) filename = strrchr(file, '/');
-    filename = filename ? filename + 1 : file;
-
-    char final_message[1024];
-    const char* level_str = level_to_string(level);
-    
-    snprintf(final_message, sizeof(final_message), "[%s] [%s] [%s:%d:%s] %s", 
-             timestamp, level_str, filename, line, function, log_buffer);
-
-    // File output
-    fprintf(log_file, "%s", final_message);
-    fflush(log_file);
-
-    // Console output
-    if (config.outputToConsole) {
-        set_console_color(get_level_color(level));
-        printf("%s", final_message);
-        reset_console_color();
-    }
-
-    ReleaseMutex(hMutex);
-}
-
-// Fast logging functions
-void log_debug(const char* format, ...) {
-    if (LOG_LEVEL_DEBUG < config.minLevel) return;
-    va_list args;
-    va_start(args, format);
-    char buffer[1024];
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    log_message(LOG_LEVEL_DEBUG, "%s", buffer);
-}
-
-void log_info(const char* format, ...) {
-    if (LOG_LEVEL_INFO < config.minLevel) return;
-    va_list args;
-    va_start(args, format);
-    char buffer[1024];
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    log_message(LOG_LEVEL_INFO, "%s", buffer);
-}
-
-void log_warn(const char* format, ...) {
-    if (LOG_LEVEL_WARN < config.minLevel) return;
-    va_list args;
-    va_start(args, format);
-    char buffer[1024];
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    log_message(LOG_LEVEL_WARN, "%s", buffer);
-}
-
-void log_error(const char* format, ...) {
-    if (LOG_LEVEL_ERROR < config.minLevel) return;
-    va_list args;
-    va_start(args, format);
-    char buffer[1024];
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    log_message(LOG_LEVEL_ERROR, "%s", buffer);
-}
-
-void log_fatal(const char* format, ...) {
-    if (LOG_LEVEL_FATAL < config.minLevel) return;
-    va_list args;
-    va_start(args, format);
-    char buffer[1024];
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    log_message(LOG_LEVEL_FATAL, "%s", buffer);
-}
-
-// Utilities
-void set_log_level(LogLevel minLevel) {
-    config.minLevel = minLevel;
-}
-
-void set_console_output(bool enabled) {
-    config.outputToConsole = enabled;
-}
-
-LoggerError get_last_error(void) {
-    return last_error;
-}
-
-const char* logger_strerror(LoggerError error) {
-    switch (error) {
-        case LOGGER_SUCCESS: return "Success";
-        case LOGGER_ERROR_FILE_OPEN: return "Failed to open log file";
-        case LOGGER_ERROR_MUTEX: return "Failed to create mutex";
-        case LOGGER_ERROR_ROTATION: return "Log rotation failed";
-        case LOGGER_ERROR_INVALID_PARAM: return "Invalid parameter";
-        case LOGGER_ERROR_BUFFER_FULL: return "Log buffer full";
-        default: return "Unknown error";
-    }
 }
