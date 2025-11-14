@@ -1,10 +1,10 @@
-#include "logger.h"
+#include "../src/logger.h"
 #include <stdio.h>
 
 int main() {
     // Simple initialization
     printf("Testing basic logger...\n");
-    logger_init("test_basic.log", 1024); // 1KB to demonstrate rotation
+    logger_init("test_basic.log", 1024); // 1KB for rotation demo
     
     log_info("Application started with basic logger\n");
     log_debug("Debug message: %s\n", "This is debug info");
@@ -13,7 +13,7 @@ int main() {
     
     logger_close();
     
-    // Advanced initialization with a config
+    // Advanced initialization with config
     printf("Testing advanced logger...\n");
     LoggerConfig cfg = {
         .logFileName = "test_advanced.log",
@@ -21,11 +21,13 @@ int main() {
         .minLevel = LOG_LEVEL_INFO,
         .outputToConsole = true,
         .enableColors = true,
-        .logFormat = "[{time}] [{level}] {message}",
         .logDirectory = "logs"
     };
     
-    logger_init_with_config(&cfg);
+    if (logger_init_with_config(&cfg) != 0) {
+        printf("Failed to initialize logger: %s\n", logger_strerror(get_last_error()));
+        return 1;
+    }
     
     // Using macros with context
     LOG_INFO("Application started with advanced config\n");
@@ -33,7 +35,7 @@ int main() {
     LOG_WARN("User '%s' performed action '%s'\n", "john_doe", "login");
     LOG_ERROR("Database connection failed: %s\n", "Timeout");
     
-    // We generate a lot of messages for the rotation test
+    // Generate many messages for rotation testing
     for (int i = 0; i < 50; i++) {
         LOG_INFO("Test message %d for rotation testing\n", i);
     }
